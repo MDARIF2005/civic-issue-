@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Civic Issue Detection</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: linear-gradient(135deg, #e3f2fd, #f9f9f9);
+      color: #222;
+      margin: 0;
+      padding: 30px;
+    }
+
+    .container {
+      max-width: 800px;
+      margin: auto;
+      background: #fff;
+      padding: 25px;
+      border-radius: 15px;
+      box-shadow: 0 6px 18px rgba(0, 0, 0, 0.1);
+      transition: all 0.3s ease;
+    }
+
+    h2 {
+      text-align: center;
+      color: #1d4ed8;
+      margin-bottom: 10px;
+    }
+
+    p.subtitle {
+      text-align: center;
+      color: #555;
+      margin-bottom: 20px;
+    }
+
+    form {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    input[type="file"] {
+      margin: 10px 0;
+    }
+
+    button {
+      background-color: #2563eb;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: 0.3s;
+      font-weight: 500;
+    }
+
+    button:hover {
+      background-color: #1e3a8a;
+    }
+
+    #output {
+      margin-top: 20px;
+      padding: 15px;
+      background: #f9fafb;
+      border-left: 5px solid #3b82f6;
+      border-radius: 10px;
+      min-height: 50px;
+      animation: fadeIn 0.5s ease-in-out;
+    }
+
+    img {
+      width: 100%;
+      max-height: 400px;
+      object-fit: contain;
+      margin-top: 15px;
+      border-radius: 10px;
+      border: 1px solid #ddd;
+    }
+
+    .prediction {
+      background: #f1f5f9;
+      padding: 10px;
+      border-radius: 8px;
+      margin: 8px 0;
+      border: 1px solid #e5e7eb;
+    }
+
+    .prediction b {
+      color: #1d4ed8;
+    }
+
+    a.map-link {
+      color: #1d4ed8;
+      text-decoration: none;
+      font-weight: bold;
+    }
+
+    a.map-link:hover {
+      text-decoration: underline;
+    }
+
+    .description {
+      font-size: 0.9em;
+      color: #444;
+      margin-top: 5px;
+    }
+
+    .footer {
+      text-align: center;
+      font-size: 0.85em;
+      color: #777;
+      margin-top: 25px;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2>🚧 Civic Issue Detector</h2>
+    <p class="subtitle">Upload an image — AI will detect civic issues, highlight them, and describe each one.</p>
+
+    <form id="uploadForm" enctype="multipart/form-data">
+      <input type="file" name="image" id="imageInput" accept="image/*" required />
+      <input type="hidden" name="latitude" id="latitude" />
+      <input type="hidden" name="longitude" id="longitude" />
+      <button type="submit">📤 Upload & Detect</button>
+    </form>
+
+    <img id="preview" src="#" style="display: none;" />
+
+    <div id="output"></div>
+    <img id="resultImage" src="#" style="display: none;" />
+
+    <div class="footer">
+      🌍 Powered by <b>MobileNetV2</b> + <b>Gemini 2.5</b> + <b>Google Maps</b>
+    </div>
+  </div>
+
+  <script>
+    // === Get User Location ===
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        pos => {
+          document.getElementById("latitude").value = pos.coords.latitude;
+          document.getElementById("longitude").value = pos.coords.longitude;
+          console.log("📍 Location:", pos.coords.latitude, pos.coords.longitude);
+        },
+        err => console.warn("⚠️ Geolocation error:", err)
+      );
+    } else {
+      alert("Geolocation is not supported by your browser.");
+    }
+
+    // === Image Preview ===
+    document.getElementById("imageInput").addEventListener("change", e => {
+      const file = e.target.files[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = ev => {
+          const preview = document.getElementById("preview");
+          preview.src = ev.target.result;
+          preview.style.display = "block";
+        };
+        reader.readAsDataURL(file);
+      }
+    });
+
+    // === Handle Upload & Prediction ===
+    document.getElementById("uploadForm").addEventListener("submit", async e => {
+      e.preventDefault();
+      const formData = new FormData(e.target);
+      const output = document.getElementById("output");
+      output.innerHTML = "⏳ Detecting civic issues... please wait.";
+
+      try {
+        const res = await fetch("/predict", { method: "POST", body: formData });
+        const data = await res.json();
+
+        if (data.error) throw new Error(data.error);
+
+        const mapLink = data.location.google_maps
+          ? `<a href="${data.location.google_maps}" target="_blank" class="map-link">📍 View on Google Maps</a>`
+          : "Location unavailable";
+
+        // === Build Output ===
+        output.innerHTML = `
+          <h3>🧠 Detected Issues</h3>
+          <p><b>Time:</b> ${data.time}</p>
+          <p><b>Location:</b> ${data.location.latitude || "N/A"}, ${data.location.longitude || "N/A"}<br>${mapLink}</p>
+          <hr>
+          ${
+            data.predictions.length
+              ? data.predictions
+                  .map(
+                    p => `
+                    <div class="prediction">
+                      <b>${p.class}</b> (${p.confidence})
+                      <div class="description">${p.description}</div>
+                    </div>`
+                  )
+                  .join("")
+              : "<p>No issues detected above confidence threshold.</p>"
+          }
+        `;
+
+        // === Show annotated image ===
+        if (data.annotated_image) {
+          const resultImg = document.getElementById("resultImage");
+          resultImg.src = data.annotated_image;
+          resultImg.style.display = "block";
+        }
+      } catch (err) {
+        output.innerHTML = `<p style="color:red;">❌ Error: ${err.message}</p>`;
+      }
+    });
+  </script>
+</body>
+</html>
